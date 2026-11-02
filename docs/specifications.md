@@ -2,7 +2,7 @@
 
 Version du 2 novembre 2026 · Julien
 
-> Source éditable : document Claude « Immobilier Aline — Spécifications ». Ce fichier en est l'export.
+> Document de référence. Toute modification des spécifications se fait ici, dans le repo.
 
 ## Contexte et objectifs
 
