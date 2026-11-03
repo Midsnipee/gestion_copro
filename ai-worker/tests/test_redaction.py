@@ -76,3 +76,9 @@ def test_sans_cle_openrouter():
         assert r.status_code == 502
     finally:
         main.app.dependency_overrides.clear()
+
+
+def test_modele_choisi_par_l_administration(client):
+    c, faux = client
+    assert c.post("/redaction", json={**CONTEXTE, "modele": "mistralai/mistral-large"}).status_code == 200
+    assert faux.recu["model"] == "mistralai/mistral-large"

@@ -29,6 +29,7 @@ services:
       CLES_DIR: /data/cles
       AI_WORKER_URL: http://ai-worker:8000
       POWERSYNC_URL: /powersync
+      POWERSYNC_INTERNE_URL: http://powersync:8080
     volumes:
       - api_data:/data
     depends_on:

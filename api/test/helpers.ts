@@ -12,7 +12,7 @@ import { hacher } from '../src/motdepasse.ts';
 // une base jetable est créée par fichier de test.
 const ADMIN = process.env.TEST_DATABASE_ADMIN_URL ?? 'postgres://postgres:postgres@127.0.0.1:5432/postgres';
 
-export async function preparer() {
+export async function preparer(opts: { vide?: boolean } = {}) {
 	const nom = `copro_test_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 	const admin = new pg.Client({ connectionString: ADMIN });
 	await admin.connect();
@@ -23,11 +23,14 @@ export async function preparer() {
 	url.pathname = `/${nom}`;
 	const pool = creerPool(url.toString());
 	await migrer(pool, join(import.meta.dirname, '..', 'migrations'), () => {});
-	await pool.query(`INSERT INTO utilisateur (id, email, nom, mot_de_passe) VALUES
-		('11111111-1111-4111-8111-111111111111', 'aline@test.fr', 'Aline', $1)`, [await hacher('motdepasse-solide')]);
+	if (!opts.vide) {
+		await pool.query(`INSERT INTO utilisateur (id, email, nom, mot_de_passe, role) VALUES
+			('11111111-1111-4111-8111-111111111111', 'aline@test.fr', 'Aline', $1, 'admin')`, [await hacher('motdepasse-solide')]);
+	}
 
 	const cles = await chargerCles(mkdtempSync(join(tmpdir(), 'cles-')));
 	const app = creerApp(pool, cles);
+	await app.ready();
 
 	const nettoyer = async () => {
 		await app.close();
@@ -38,9 +41,9 @@ export async function preparer() {
 		await a.end();
 	};
 
-	const connexion = async () => {
-		const r = await app.inject({ method: 'POST', url: '/api/auth/connexion', payload: { email: 'aline@test.fr', mot_de_passe: 'motdepasse-solide' } });
-		return r.json() as { acces: string; renouvellement: string };
+	const connexion = async (email = 'aline@test.fr', mot_de_passe = 'motdepasse-solide') => {
+		const r = await app.inject({ method: 'POST', url: '/api/auth/connexion', payload: { email, mot_de_passe } });
+		return r.json() as { acces: string; renouvellement: string; utilisateur: { id: string; role: string } };
 	};
 
 	return { app, pool, cles, nettoyer, connexion };

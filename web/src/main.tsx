@@ -5,6 +5,8 @@ import { BrowserRouter, Navigate, NavLink, Route, Routes } from 'react-router';
 import { EtatSync } from './components/EtatSync';
 import { connecteur, db } from './lib/db';
 import { ecrireSession, lireSession, surSession, type Session } from './lib/session';
+import { Admin } from './pages/admin/Admin';
+import { Compte } from './pages/Compte';
 import { Conflits } from './pages/Conflits';
 import { Connexion } from './pages/Connexion';
 import { Copro } from './pages/Copro';
@@ -38,9 +40,13 @@ function Entete({ session }: { session: Session }) {
 				<NavLink to="/conflits">
 					Conflits{nbConflits > 0 && <span className="badge alerte">{nbConflits}</span>}
 				</NavLink>
+				{session.utilisateur.role === 'admin' && <NavLink to="/admin">Administration</NavLink>}
 			</nav>
 			<EtatSync />
-			<button className="lien" onClick={deconnexion} title={session.utilisateur.email}>
+			<NavLink className="lien" to="/compte" title={session.utilisateur.email}>
+				{session.utilisateur.nom}
+			</NavLink>
+			<button className="lien" onClick={deconnexion}>
 				Déconnexion
 			</button>
 		</header>
@@ -57,7 +63,13 @@ function App() {
 	// Connecté = une session existe sur l'appareil, même hors ligne
 	const ouverte = session !== null;
 	useEffect(() => {
-		if (ouverte) db.connect(connecteur);
+		if (ouverte) {
+			db.connect(connecteur);
+			return;
+		}
+		// Session fermée par le serveur (compte désactivé, mot de passe réinitialisé) :
+		// les données de l'appareil sont effacées
+		void db.disconnectAndClear();
 	}, [ouverte]);
 
 	if (!session) return <Connexion />;
@@ -69,6 +81,8 @@ function App() {
 					<Route path="/" element={<Copros />} />
 					<Route path="/copro/:id" element={<Copro />} />
 					<Route path="/conflits" element={<Conflits />} />
+					<Route path="/compte" element={<Compte />} />
+					{session.utilisateur.role === 'admin' && <Route path="/admin/*" element={<Admin />} />}
 					<Route path="*" element={<Navigate to="/" replace />} />
 				</Routes>
 			</main>

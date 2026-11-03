@@ -399,3 +399,211 @@ header nav a.active {
 	color: var(--secondaire);
 	font-weight: 500;
 }
+
+/* --- administration --- */
+a.lien {
+	text-decoration: none;
+	color: var(--accent);
+	font-size: 0.95rem;
+}
+
+.onglets {
+	display: flex;
+	gap: 4px;
+	flex-wrap: wrap;
+	border-bottom: 1px solid var(--bord);
+	margin: 16px 0 8px;
+}
+
+.onglets a {
+	text-decoration: none;
+	color: var(--secondaire);
+	padding: 8px 12px;
+	border-bottom: 2px solid transparent;
+	margin-bottom: -1px;
+}
+
+.onglets a.active {
+	color: var(--texte);
+	border-bottom-color: var(--accent);
+	font-weight: 600;
+}
+
+.comptes li.inactif {
+	opacity: 0.6;
+}
+
+.ligne-compte {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.ligne-compte > div:first-child {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.ligne-compte strong {
+	display: inline;
+	margin-right: 6px;
+}
+
+.ligne-compte .badge {
+	display: inline-block;
+	margin: 0 6px 0 0;
+}
+
+.badge.role-admin {
+	background: var(--accent);
+	color: var(--carte);
+}
+
+.actions {
+	display: flex;
+	gap: 6px;
+	flex-wrap: wrap;
+	align-items: flex-start;
+}
+
+.actions button {
+	font-size: 0.85rem;
+	padding: 6px 10px;
+}
+
+button.danger-btn {
+	background: transparent;
+	color: var(--danger);
+	border-color: var(--danger);
+}
+
+details summary {
+	cursor: pointer;
+	margin-top: 6px;
+}
+
+details ul {
+	margin: 4px 0 0;
+	padding-left: 18px;
+}
+
+.carte.info {
+	border-color: var(--accent);
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	align-items: flex-start;
+}
+
+.carte.info p {
+	margin: 0;
+}
+
+code.secret {
+	font-size: 1.1rem;
+	padding: 6px 10px;
+	background: var(--accent-clair);
+	border-radius: 6px;
+	user-select: all;
+}
+
+.champ-bouton {
+	display: flex;
+	gap: 6px;
+}
+
+.champ-bouton input {
+	font-family: ui-monospace, monospace;
+}
+
+.grille-services,
+.grille-chiffres {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+	gap: 12px;
+}
+
+.service {
+	display: flex;
+	gap: 10px;
+	align-items: flex-start;
+	background: var(--carte);
+	border: 1px solid var(--bord);
+	border-radius: 10px;
+	padding: 12px 14px;
+}
+
+.service > div {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.service .pastille {
+	margin-top: 6px;
+	flex: none;
+}
+
+.service.ko {
+	border-color: var(--danger);
+}
+
+.service.ko .pastille {
+	background: var(--danger);
+}
+
+.chiffre {
+	background: var(--carte);
+	border: 1px solid var(--bord);
+	border-radius: 10px;
+	padding: 12px 14px;
+	display: flex;
+	flex-direction: column;
+}
+
+.chiffre strong {
+	font-size: 1.5rem;
+	font-variant-numeric: tabular-nums;
+}
+
+table.tableau {
+	width: 100%;
+	border-collapse: collapse;
+	background: var(--carte);
+	border: 1px solid var(--bord);
+	border-radius: 10px;
+	font-size: 0.9rem;
+}
+
+.tableau th,
+.tableau td {
+	text-align: left;
+	padding: 8px 10px;
+	border-bottom: 1px solid var(--bord);
+	vertical-align: top;
+}
+
+.tableau th {
+	color: var(--secondaire);
+	font-weight: 500;
+}
+
+@media (max-width: 560px) {
+	table.tableau {
+		display: block;
+		overflow-x: auto;
+	}
+}
+
+.titre-compte {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.titre-compte .badge {
+	margin: 0;
+}

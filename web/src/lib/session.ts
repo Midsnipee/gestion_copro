@@ -2,7 +2,7 @@
 export interface Session {
 	acces: string;
 	renouvellement: string;
-	utilisateur: { id: string; email: string; nom: string };
+	utilisateur: { id: string; email: string; nom: string; role: 'admin' | 'gestionnaire' };
 	powersync_url: string;
 }
 
@@ -55,13 +55,26 @@ export async function connexion(email: string, motDePasse: string): Promise<Sess
 	return s;
 }
 
+/** Premier lancement : création du premier administrateur avec le code affiché dans les journaux du serveur. */
+export async function initialiser(params: { code: string; email: string; nom: string; mot_de_passe: string }): Promise<Session> {
+	const r = await fetch('/api/auth/initialisation', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(params)
+	});
+	const donnees = await r.json().catch(() => ({}));
+	if (!r.ok) throw new Error(donnees.erreur ?? donnees.message ?? `Erreur ${r.status}`);
+	ecrireSession(donnees as Session);
+	return donnees as Session;
+}
+
 let renouvellementEnCours: Promise<Session> | null = null;
 
-/** Jeton d'accès valide, renouvelé si besoin. Lève une erreur hors ligne. */
-export async function jetonValide(): Promise<string> {
+/** Jeton d'accès valide, renouvelé si besoin (ou si `forcer`). Lève une erreur hors ligne. */
+export async function jetonValide(forcer = false): Promise<string> {
 	const s = lireSession();
 	if (!s) throw new Error('Non connectée');
-	if (resteValide(s.acces) > 60) return s.acces;
+	if (!forcer && resteValide(s.acces) > 60) return s.acces;
 	renouvellementEnCours ??= (async () => {
 		try {
 			const r = await fetch('/api/auth/renouveler', {
@@ -84,13 +97,18 @@ export async function jetonValide(): Promise<string> {
 	return (await renouvellementEnCours).acces;
 }
 
-/** Appel d'API authentifié. */
-export async function api<T>(chemin: string, corps: unknown): Promise<T> {
-	const r = await fetch(chemin, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await jetonValide()}` },
-		body: JSON.stringify(corps)
-	});
+/** Appel d'API authentifié (POST par défaut). */
+export async function api<T>(chemin: string, corps?: unknown, methode = 'POST'): Promise<T> {
+	const envoyer = async (jeton: string) =>
+		fetch(chemin, {
+			method: corps === undefined && methode === 'POST' ? 'GET' : methode,
+			headers: { ...(corps !== undefined ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${jeton}` },
+			body: corps !== undefined ? JSON.stringify(corps) : undefined
+		});
+	let r = await envoyer(await jetonValide());
+	// Jeton refusé (compte modifié, désactivé…) : on renouvelle une fois. Si le renouvellement
+	// est refusé, la session est fermée et l'appareil revient à l'écran de connexion.
+	if (r.status === 401) r = await envoyer(await jetonValide(true));
 	const donnees = await r.json().catch(() => ({}));
 	if (!r.ok) throw Object.assign(new Error(donnees.erreur ?? `Erreur ${r.status}`), { status: r.status });
 	return donnees as T;

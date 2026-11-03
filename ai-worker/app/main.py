@@ -28,6 +28,6 @@ async def redaction(
     s: Annotated[Settings, Depends(get_settings)],
 ) -> Brouillon:
     try:
-        return await rediger(llm, s.model_redaction, d)
+        return await rediger(llm, d.modele or s.model_redaction, d)
     except LLMError as e:
         raise HTTPException(502, str(e))

@@ -53,6 +53,8 @@ class DemandeRedaction(BaseModel):
     personnes: list[dict] = []
     destinataire: str | None = None
     consignes: str = ""
+    # Modèle choisi dans l'écran d'administration (sinon celui de la configuration)
+    modele: str | None = None
 
 
 class Brouillon(BaseModel):

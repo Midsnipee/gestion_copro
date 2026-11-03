@@ -33,6 +33,7 @@ Huit modules couvrent le quotidien du syndic ; l'IA (section suivante) s'appuie 
 | Travaux | Besoin, devis, vote AG, ordre de service, suivi, réception | Lecture + saisie | V2 |
 | Réunions et AG | Ordre du jour, présences, résolutions, votes, PV | Lecture + saisie | V2 |
 | Tableau de bord | Échéances, relances, demandes ouvertes, toutes copros | Lecture | V3 |
+| Administration | Comptes et rôles, sessions des appareils, état des services, modèles IA, journal des actions | Non (en ligne uniquement) | V1 |
 
 Règle commune : chaque objet est rattaché à une copro, ce qui permet le filtrage partout et le ciblage du chatbot.
 
@@ -202,7 +203,11 @@ Les données des copropriétaires restent sur le serveur ; seuls des textes pseu
 
 **Accès**
 
-- Comptes gérés par l'API (mots de passe hachés scrypt), créés en ligne de commande ; accès distant uniquement via HTTPS ou VPN.
+- Comptes gérés dans l'écran Administration (mots de passe hachés scrypt, 12 caractères minimum) ; accès distant uniquement via HTTPS ou VPN.
+- Deux rôles : administrateur (gestion des comptes et des réglages) et gestionnaire. Le dernier administrateur actif ne peut pas être rétrogradé ni désactivé.
+- Premier lancement : tant qu'aucun compte n'existe, un code à usage unique écrit dans les journaux du serveur permet de créer l'administrateur depuis l'écran.
+- Chaque requête relit le compte en base : un compte désactivé perd l'accès immédiatement, ses sessions sont supprimées et ses appareils effacent leurs données locales à la reconnexion.
+- Toute action d'administration est tracée (auteur, date, avant / après).
 - Jeton d'accès RS256 d'une heure, renouvelé avec un jeton à usage unique de 60 jours ; la désactivation d'un compte révoque ses renouvellements.
 - Clé API OpenRouter stockée côté serveur, jamais dans le front.
 - Le worker IA n'est pas exposé : seule l'API l'appelle, après avoir vérifié la session et assemblé le contexte.

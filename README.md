@@ -13,8 +13,8 @@ Référence fonctionnelle et technique : [docs/specifications.md](docs/specifica
 | Partie | Fait | À venir |
 | --- | --- | --- |
 | Base de données | Schéma PostgreSQL complet (18 tables), publication pour PowerSync | — |
-| API | Sessions JWT + renouvellement, envoi des écritures avec contrôle de version et consignation des conflits, rédaction IA | Fichiers (scans, photos), export Word/PDF |
-| Front PWA | Connexion, copros, demandes, rédaction de courrier IA, statut « Sur cet appareil » / « Synchronisé », écran Conflits | Lots, contacts, entreprises, visites |
+| API | Sessions JWT + renouvellement, rôles, administration, envoi des écritures avec contrôle de version et consignation des conflits, rédaction IA | Fichiers (scans, photos), export Word/PDF |
+| Front PWA | Premier lancement, connexion, copros, demandes, rédaction de courrier IA, statut « Sur cet appareil » / « Synchronisé », Conflits, Administration, Mon compte | Lots, contacts, entreprises, visites |
 | Worker IA | Rédaction avec pseudonymisation | Ingestion des scans, chatbot RAG, transcription |
 | Déploiement | docker-compose (5 services), sauvegarde vers le NAS | — |
 
@@ -25,11 +25,21 @@ git clone https://github.com/Midsnipee/gestion_copro && cd gestion_copro/deploy
 cp .env.example .env     # renseigner DOMAINE, PG_PASSWORD, PS_PASSWORD, OPENROUTER_API_KEY
 docker compose up -d --build
 
-# Compte d'Aline (mot de passe demandé, 12 caractères min.)
-docker compose exec api node dist/cli.js utilisateur aline@exemple.fr "Aline"
+# Code à usage unique pour créer le premier administrateur
+docker compose logs api | grep initialisation
 ```
 
-Aline ouvre ensuite `https://<DOMAINE>/` et installe l'application depuis le navigateur. L'installation et le hors ligne exigent HTTPS (sauf `localhost`) : renseigner `DOMAINE` avec un nom qui pointe vers le serveur (Caddy obtient le certificat), ou passer par un VPN avec certificat.
+Ouvrir ensuite `https://<DOMAINE>/` : l'écran « Premier lancement » demande ce code, puis crée le compte administrateur. Tout le reste se gère dans **Administration** :
+
+- **Utilisateurs** : créer un compte (mot de passe provisoire généré), modifier, rôle administrateur ou gestionnaire, nouveau mot de passe, déconnecter les appareils, désactiver ou réactiver.
+- **État du système** : API, PostgreSQL, PowerSync (réplication), worker IA, chiffres clés.
+- **Modèles IA** : modèle OpenRouter par tâche.
+- **Journal** : historique des actions d'administration.
+
+Chacun change son propre mot de passe dans « Mon compte » (clic sur son nom). En secours, la ligne de commande reste disponible :
+`docker compose exec api node dist/cli.js utilisateur <email> "<nom>" [admin]`.
+
+L'application s'installe depuis le navigateur. L'installation et le hors ligne exigent HTTPS (sauf `localhost`) : renseigner `DOMAINE` avec un nom qui pointe vers le serveur (Caddy obtient le certificat), ou passer par un VPN avec certificat.
 
 Sauvegarde nocturne vers le NAS, sur l'hôte :
 

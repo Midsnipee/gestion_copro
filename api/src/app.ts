@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { routesAdmin } from './admin.ts';
 import { routesAuth } from './auth.ts';
 import type { Cles } from './cles.ts';
 import type { Pool } from './db.ts';
@@ -19,7 +20,7 @@ export function creerApp(pool: Pool, cles: Cles, opts: { logger?: boolean } = {}
 		return { ok: true };
 	});
 
-	const exigerSession = routesAuth(app, pool, cles);
+	const { exigerSession, exigerAdmin } = routesAuth(app, pool, cles);
 
 	// Envoi des écritures locales des appareils (appelé par le connecteur PowerSync)
 	app.post<{ Body: { operations: Operation[] } }>(
@@ -64,6 +65,7 @@ export function creerApp(pool: Pool, cles: Cles, opts: { logger?: boolean } = {}
 	);
 
 	routesIA(app, pool, exigerSession);
+	routesAdmin(app, pool, exigerAdmin);
 
 	return app;
 }

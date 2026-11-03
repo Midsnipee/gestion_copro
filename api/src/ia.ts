@@ -1,4 +1,5 @@
 import type { FastifyInstance, preHandlerAsyncHookHandler } from 'fastify';
+import { modelesIA } from './admin.ts';
 import { config } from './config.ts';
 import type { Pool } from './db.ts';
 
@@ -78,7 +79,8 @@ export function routesIA(app: FastifyInstance, pool: Pool, exigerSession: preHan
 					source,
 					personnes,
 					destinataire: b.destinataire ?? null,
-					consignes: b.consignes ?? ''
+					consignes: b.consignes ?? '',
+					modele: (await modelesIA(pool)).redaction
 				}),
 				signal: AbortSignal.timeout(150_000)
 			}).catch((e: Error) => {
