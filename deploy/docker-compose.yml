@@ -1,0 +1,42 @@
+# Lancement : cd deploy && cp .env.example .env && docker compose up -d --build
+name: gestion-copro
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: app/Dockerfile
+    restart: unless-stopped
+    volumes:
+      - pb_data:/pb/pb_data
+    expose:
+      - "8090"
+
+  ai-worker:
+    build: ../ai-worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PB_URL: http://app:8090
+    depends_on:
+      - app
+    expose:
+      - "8000"
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - app
+      - ai-worker
+
+volumes:
+  pb_data:
+  caddy_data:

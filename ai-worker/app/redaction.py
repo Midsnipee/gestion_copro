@@ -1,0 +1,134 @@
+"""Rédaction automatique de courriers et rapports."""
+
+import re
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from .openrouter import OpenRouter
+from .pocketbase import PocketBase
+from .pseudonymisation import Pseudonymiseur
+
+PB_ID = r"^[a-z0-9]{15}$"
+
+TypeDocument = Literal[
+    "relance",
+    "mise_en_demeure",
+    "convocation",
+    "demande_devis",
+    "reponse_coproprietaire",
+    "information",
+    "rapport_visite",
+    "compte_rendu_cs",
+]
+
+CONSIGNES_TYPE: dict[str, str] = {
+    "relance": "Courrier de relance courtois mais ferme, qui rappelle la demande initiale et fixe un délai.",
+    "mise_en_demeure": "Mise en demeure formelle : rappel des faits, obligation non respectée, délai impératif, conséquences. Ton juridique et sobre.",
+    "convocation": "Convocation à une réunion ou assemblée : date, lieu, ordre du jour, modalités de pouvoir.",
+    "demande_devis": "Demande de devis à une entreprise : description précise des travaux, adresse d'intervention, contraintes d'accès, délai de réponse souhaité.",
+    "reponse_coproprietaire": "Réponse à un copropriétaire : accuser réception, répondre point par point, indiquer les prochaines étapes.",
+    "information": "Note d'information aux copropriétaires, claire et concise.",
+    "rapport_visite": "Rapport de visite d'immeuble structuré : constats par zone, points d'attention, actions à mener avec priorité.",
+    "compte_rendu_cs": "Compte rendu de réunion du conseil syndical : présents, points abordés, décisions, actions et responsables.",
+}
+
+SYSTEM = """Tu es l'assistante de rédaction d'une gestionnaire de syndic de copropriété en France.
+Tu rédiges en français, dans un registre professionnel et courtois, conforme aux usages des syndics.
+
+Règles strictes :
+- Les jetons entre crochets comme [PERSONNE_1], [EMAIL_2], [TELEPHONE_1] remplacent des données personnelles : recopie-les exactement, sans les modifier ni les expliquer.
+- N'invente aucun fait, date, montant, nom ou référence. Si une information nécessaire manque, écris [À COMPLÉTER : description].
+- Pas de formule de politesse de signature nominative : termine par « La gestionnaire » ; la signature est ajoutée ensuite.
+- Réponds uniquement avec le document, au format :
+Objet : <objet>
+
+<corps du document>"""
+
+
+class DemandeRedaction(BaseModel):
+    type: TypeDocument
+    copropriete_id: str = Field(pattern=PB_ID)
+    source_type: Literal["demande", "visite", "reunion", "chantier"] | None = None
+    source_id: str | None = Field(default=None, pattern=PB_ID)
+    destinataire: str | None = None
+    consignes: str = ""
+
+
+class Brouillon(BaseModel):
+    objet: str
+    corps: str
+    modele: str
+
+
+def _texte(html: str | None) -> str:
+    """Les champs « editor » de PocketBase sont en HTML."""
+    if not html:
+        return ""
+    t = re.sub(r"<(br|/p|/li|/h\d)\s*/?>", "\n", html, flags=re.I)
+    t = re.sub(r"<[^>]+>", "", t)
+    return re.sub(r"\n{3,}", "\n\n", t).strip()
+
+
+def _declarer_personne(p: Pseudonymiseur, personne: dict | None) -> None:
+    if not personne:
+        return
+    nom, prenom = personne.get("nom"), personne.get("prenom")
+    if prenom and nom:
+        p.ajouter(f"{prenom} {nom}")
+        p.ajouter(f"{nom} {prenom}")
+    p.ajouter(nom)
+    p.ajouter(personne.get("adresse_postale"), "ADRESSE")
+    p.ajouter(personne.get("email"), "EMAIL")
+    p.ajouter(personne.get("telephone"), "TELEPHONE")
+
+
+async def assembler_contexte(pb: PocketBase, d: DemandeRedaction, p: Pseudonymiseur) -> str:
+    copro = await pb.record("copropriete", d.copropriete_id)
+    lignes = [
+        f"Copropriété : {copro.get('nom')}",
+        f"Adresse de l'immeuble : {copro.get('adresse')} {copro.get('code_postal', '')} {copro.get('ville', '')}".strip(),
+    ]
+
+    if d.source_type and d.source_id:
+        expand = "demandeur" if d.source_type == "demande" else None
+        src = await pb.record(d.source_type, d.source_id, expand=expand)
+        if src.get("copropriete") != d.copropriete_id:
+            raise ValueError("La source n'appartient pas à cette copropriété")
+        _declarer_personne(p, (src.get("expand") or {}).get("demandeur"))
+        lignes.append(f"\nÉlément source ({d.source_type}) :")
+        for champ in ("titre", "objet", "categorie", "statut", "priorite", "date", "type", "lieu", "echeance"):
+            if src.get(champ):
+                lignes.append(f"- {champ} : {src[champ]}")
+        for champ in ("description", "notes", "transcription", "ordre_du_jour", "pv"):
+            if src.get(champ):
+                lignes.append(f"- {champ} :\n{_texte(src[champ])}")
+
+    if d.destinataire:
+        p.ajouter(d.destinataire)
+        lignes.append(f"\nDestinataire : {d.destinataire}")
+
+    return "\n".join(lignes)
+
+
+def _decouper(texte: str) -> tuple[str, str]:
+    m = re.match(r"\s*Objet\s*:\s*(.+?)\n(.*)", texte, flags=re.S | re.I)
+    if not m:
+        return "", texte.strip()
+    return m.group(1).strip(), m.group(2).strip()
+
+
+async def rediger(pb: PocketBase, llm: OpenRouter, modele: str, d: DemandeRedaction) -> Brouillon:
+    p = Pseudonymiseur()
+    contexte = await assembler_contexte(pb, d, p)
+    consignes = CONSIGNES_TYPE[d.type]
+    if d.consignes:
+        consignes += f"\nConsignes de la gestionnaire : {d.consignes}"
+
+    message = p.masquer(f"Type de document : {d.type}\n{consignes}\n\nContexte :\n{contexte}")
+    reponse = await llm.chat(
+        modele,
+        [{"role": "system", "content": SYSTEM}, {"role": "user", "content": message}],
+    )
+    objet, corps = _decouper(p.demasquer(reponse))
+    return Brouillon(objet=objet, corps=corps, modele=modele)

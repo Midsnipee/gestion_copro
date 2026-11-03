@@ -1,0 +1,8 @@
+node_modules/
+web/build/
+web/.svelte-kit/
+.env
+__pycache__/
+.pytest_cache/
+.venv/
+pb_data/

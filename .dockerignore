@@ -1,0 +1,7 @@
+.git
+**/node_modules
+web/build
+web/.svelte-kit
+**/__pycache__
+**/.pytest_cache
+deploy/.env

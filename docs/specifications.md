@@ -88,8 +88,8 @@ flowchart LR
     PC["PC (navigateur)"] --> Caddy
     Mobile["Tablette, mobile<br/>PWA hors ligne<br/>IndexedDB + outbox"] --> Caddy
     subgraph VM["Serveur : VM Proxmox, Docker"]
-        Caddy["Caddy, reverse proxy HTTPS"] --> PB["PocketBase<br/>API, auth, front PWA<br/>SQLite : données, sqlite-vec, FTS5<br/>Fichiers : scans, photos"]
-        PB <--> Worker["Worker IA (FastAPI)<br/>OCR, embeddings bge-m3, Whisper<br/>Pseudonymisation avant envoi<br/>File de tâches"]
+        Caddy["Caddy, reverse proxy HTTPS"] --> PB["PocketBase<br/>API, auth, front PWA<br/>SQLite : données métier<br/>Fichiers : scans, photos"]
+        PB <--> Worker["Worker IA (FastAPI)<br/>OCR, embeddings bge-m3, Whisper<br/>Index SQLite : sqlite-vec + FTS5<br/>Pseudonymisation avant envoi<br/>File de tâches"]
     end
     PB --> NAS["NAS<br/>Sauvegarde nocturne"]
     Worker <--> OR["OpenRouter<br/>LLM cloud<br/>texte pseudonymisé"]
@@ -99,10 +99,10 @@ Les appareils ne parlent qu'au serveur ; seul le worker appelle OpenRouter, apr�
 
 | Couche | Choix | Raison |
 | --- | --- | --- |
-| Front | SvelteKit en PWA | Installable, hors ligne, léger |
+| Front | SvelteKit 3 en PWA, service worker maison | Installable, hors ligne, léger |
 | Stockage local | IndexedDB (Dexie) + outbox | Saisie et photos sans réseau |
 | Backend | PocketBase (Go, SQLite) | Binaire unique : API, auth, fichiers, admin |
-| Recherche | sqlite-vec + FTS5 | Vectoriel et plein texte dans la même base |
+| Recherche | sqlite-vec + FTS5 | Index propre au worker IA, reconstructible depuis les documents |
 | Worker IA | Python, FastAPI | Écosystème OCR et IA |
 | OCR | Tesseract ou PaddleOCR | Local, gratuit |
 | Embeddings | bge-m3 | Local, bon en français |
@@ -130,12 +130,13 @@ La copropriété est la racine : toute donnée y est rattachée, directement ou 
 | reunion | type (CS, AG), date, présents, ordre du jour, PV | copropriete |
 | resolution | intitulé, majorité, résultat, votes | reunion |
 | document | fichier, type, date, statut d'ingestion, texte OCR | copropriete + objet lié |
-| chunk | texte, page, embedding (vecteur) | document |
 | extraction | champ, valeur, confiance, vérifié | document |
 | tache | titre, échéance, statut, origine (manuelle, IA) | tout objet |
 | journal | action, objet, horodatage, auteur | tout objet |
 
-Chaque enregistrement porte un identifiant unique (UUID), une date de modification et un indicateur de synchronisation, nécessaires au mode hors ligne.
+Chaque enregistrement porte un identifiant PocketBase (15 caractères) généré côté client, ce qui permet de créer une fiche hors ligne sans conflit, et une date `updated` indexée pour la synchronisation incrémentale.
+
+Les passages découpés des documents et leurs embeddings ne sont pas dans PocketBase : ils vivent dans l'index SQLite du worker IA (sqlite-vec + FTS5), reconstructible à partir des documents.
 
 ## Pipeline d'ingestion documentaire
 
@@ -145,7 +146,7 @@ Chaque document passe par six étapes asynchrones, exécutées par le worker IA 
 2. **OCR** : extraction du texte natif si le PDF en contient, sinon Tesseract ou PaddleOCR en local ; modèle vision en secours sur les pages illisibles.
 3. **Classification** : le type de document est déduit des premières pages par un modèle peu cher.
 4. **Extraction** : champs propres au type (dates, montants, résolutions, échéances), stockés avec un score de confiance et le statut « à vérifier ».
-5. **Découpage et indexation** : passages de 500 à 800 tokens avec chevauchement, numéro de page conservé, embeddings bge-m3 en local, stockage dans sqlite-vec et index plein texte FTS5.
+5. **Découpage et indexation** : passages de 500 à 800 tokens avec chevauchement, numéro de page conservé, embeddings bge-m3 en local, stockage dans l'index du worker (sqlite-vec + plein texte FTS5).
 6. **Actions** : tâches proposées (échéance de contrat, relance), rattachement à une demande ou un chantier.
 
 Volume estimé pour 100 copros : 50 000 à 150 000 pages, 50 à 200 Go de scans. Ingestion par vagues : d'abord règlements de copropriété et 3 derniers PV d'AG par copro, puis l'historique en tâche de nuit.
@@ -186,6 +187,7 @@ Les données des copropriétaires restent sur le serveur ; seuls des textes pseu
 
 - Authentification PocketBase, mot de passe fort, accès distant uniquement via HTTPS (reverse proxy) ou VPN.
 - Clé API OpenRouter stockée côté serveur, jamais dans le front.
+- Le worker IA n'a pas de compte propre : chaque appel porte la session PocketBase de l'utilisatrice, vérifiée auprès de PocketBase, et il ne lit que ce qu'elle a le droit de lire.
 - Données locales de l'appareil effaçables à distance par déconnexion du compte.
 
 **RGPD**
