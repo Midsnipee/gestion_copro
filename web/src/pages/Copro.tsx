@@ -1,72 +1,177 @@
 import { useQuery, useStatus } from '@powersync/react';
 import { useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router';
-import { BadgeLocal, useEnAttente } from '../components/EtatSync';
-import { creer, modifier } from '../lib/db';
+import { Link, useParams, useSearchParams } from 'react-router';
+import { useEnAttente } from '../components/EtatSync';
+import { creer } from '../lib/db';
+import { fDate, fTags } from '../lib/format';
 import { rediger, type TypeCourrier } from '../lib/ia';
-import { CATEGORIES_DEMANDE, PRIORITES, STATUTS_DEMANDE, TYPES_COURRIER, dateCourte } from '../lib/libelles';
+import { TYPES_COURRIER } from '../lib/libelles';
+import { module } from '../modules/definitions';
+import { FormulaireModule } from '../modules/FormulaireModule';
+import { ListeModule } from '../modules/ListeModule';
 
-interface Demande {
+const ONGLETS = [
+	{ cle: 'apercu', titre: "Vue d'ensemble" },
+	{ cle: 'demandes', titre: 'Demandes' },
+	{ cle: 'taches', titre: 'Tâches' },
+	{ cle: 'travaux', titre: 'Travaux' },
+	{ cle: 'devis', titre: 'Devis' },
+	{ cle: 'courriers', titre: 'Courriers' },
+	{ cle: 'visites', titre: 'Visites' },
+	{ cle: 'reunions', titre: 'Réunions' },
+	{ cle: 'lots', titre: 'Lots' },
+	{ cle: 'personnes', titre: 'Personnes' },
+	{ cle: 'contrats', titre: 'Contrats' },
+	{ cle: 'documents', titre: 'Documents' }
+];
+
+interface Copropriete {
 	id: string;
-	titre: string;
-	categorie: string;
-	priorite: string;
-	statut: string;
-	created: string;
-}
-interface Courrier {
-	id: string;
-	objet: string | null;
-	type: string;
-	destinataire: string;
-	statut: string;
-	updated: string;
+	nom: string;
+	alias: string | null;
+	adresse: string;
+	code_postal: string | null;
+	ville: string | null;
+	nb_lots: number | null;
+	syndic_depuis: string | null;
+	notes: string | null;
 }
 
-const options = (o: Record<string, string>) =>
-	Object.entries(o).map(([v, l]) => (
-		<option key={v} value={v}>
-			{l}
-		</option>
-	));
+const COMPTES = `SELECT
+	(SELECT count(*) FROM demande WHERE copropriete_id = ?1 AND statut NOT IN ('resolue', 'close')) AS demandes,
+	(SELECT count(*) FROM tache WHERE copropriete_id = ?1 AND statut IN ('a_faire', 'en_cours')) AS taches,
+	(SELECT count(*) FROM chantier WHERE copropriete_id = ?1 AND statut NOT IN ('receptionne', 'abandonne')) AS travaux,
+	(SELECT count(*) FROM devis WHERE copropriete_id = ?1 AND statut IN ('demande', 'recu')) AS devis,
+	(SELECT count(*) FROM courrier WHERE copropriete_id = ?1) AS courriers,
+	(SELECT count(*) FROM visite WHERE copropriete_id = ?1) AS visites,
+	(SELECT count(*) FROM reunion WHERE copropriete_id = ?1) AS reunions,
+	(SELECT count(*) FROM lot WHERE copropriete_id = ?1) AS lots,
+	(SELECT count(*) FROM personne WHERE copropriete_id = ?1) AS personnes,
+	(SELECT count(*) FROM contrat WHERE copropriete_id = ?1) AS contrats,
+	(SELECT count(*) FROM document WHERE copropriete_id = ?1) AS documents`;
+
+const LIBELLES_COMPTES: Record<string, string> = {
+	demandes: 'demandes ouvertes',
+	taches: 'tâches à faire',
+	travaux: 'chantiers en cours',
+	devis: 'devis en attente',
+	courriers: 'courriers',
+	visites: 'visites',
+	reunions: 'réunions',
+	lots: 'lots',
+	personnes: 'personnes',
+	contrats: 'contrats',
+	documents: 'documents'
+};
 
 export function Copro() {
 	const { id = '' } = useParams();
-	const { data: copros, isLoading } = useQuery<{ nom: string; adresse: string; code_postal: string | null; ville: string | null }>(
-		'SELECT nom, adresse, code_postal, ville FROM copropriete WHERE id = ?',
-		[id]
+	const [params, setParams] = useSearchParams();
+	const onglet = params.get('onglet') ?? 'apercu';
+	const { data, isLoading } = useQuery<Copropriete>('SELECT * FROM copropriete WHERE id = ?', [id]);
+	const { data: comptes } = useQuery<Record<string, number>>(COMPTES, [id]);
+	const [edition, setEdition] = useState(false);
+	const c = data[0];
+
+	const choisir = (cle: string) => setParams(cle === 'apercu' ? {} : { onglet: cle });
+
+	if (!c) return isLoading ? null : <p className="vide">Copropriété introuvable. <Link to="/m/coproprietes">Voir toutes les copropriétés</Link></p>;
+
+	const m = module(onglet);
+	const alias = fTags(c.alias);
+	return (
+		<>
+			<div className="entete-page entete-copro">
+				<div>
+					<Link className="retour" to="/m/coproprietes">
+						Copropriétés
+					</Link>
+					<h1>{c.nom}</h1>
+					<p className="secondaire">
+						{[c.adresse, c.code_postal, c.ville].filter(Boolean).join(' ')}
+						{alias.length > 0 && <> · aussi appelée {alias.join(', ')}</>}
+					</p>
+				</div>
+				<button className="secondaire-btn" onClick={() => setEdition(true)}>
+					Modifier la fiche
+				</button>
+			</div>
+
+			<nav className="onglets onglets-copro" aria-label="Sections de la copropriété">
+				{ONGLETS.map((o) => (
+					<button key={o.cle} className={o.cle === onglet ? 'active' : ''} aria-current={o.cle === onglet ? 'page' : undefined} onClick={() => choisir(o.cle)}>
+						{o.titre}
+						{o.cle !== 'apercu' && comptes[0]?.[o.cle] ? <span className="nb">{comptes[0][o.cle]}</span> : null}
+					</button>
+				))}
+			</nav>
+
+			{onglet === 'apercu' && (
+				<div className="apercu">
+					<dl className="infos">
+						<div>
+							<dt>Adresse</dt>
+							<dd>{[c.adresse, c.code_postal, c.ville].filter(Boolean).join(' ') || '—'}</dd>
+						</div>
+						<div>
+							<dt>Nombre de lots</dt>
+							<dd>{c.nb_lots ?? '—'}</dd>
+						</div>
+						<div>
+							<dt>Syndic depuis le</dt>
+							<dd>{fDate(c.syndic_depuis) || '—'}</dd>
+						</div>
+						{c.notes && (
+							<div className="large">
+								<dt>Notes</dt>
+								<dd className="notes">{c.notes}</dd>
+							</div>
+						)}
+					</dl>
+					<ul className="raccourcis">
+						{Object.entries(LIBELLES_COMPTES).map(([cle, libelle]) => (
+							<li key={cle}>
+								<button onClick={() => choisir(cle)}>
+									<strong>{comptes[0]?.[cle] ?? 0}</strong> {libelle}
+								</button>
+							</li>
+						))}
+					</ul>
+				</div>
+			)}
+
+			{onglet === 'courriers' && <RedactionIA coproId={id} sourceInitiale={params.get('source') ?? ''} />}
+			{m && m.parCopro && <ListeModule key={m.cle} m={m} coproId={id} />}
+
+			{edition && <FormulaireModule m={module('coproprietes')!} id={id} onFermer={() => setEdition(false)} />}
+		</>
 	);
-	const { data: demandes } = useQuery<Demande>('SELECT * FROM demande WHERE copropriete_id = ? ORDER BY created DESC', [id]);
-	const { data: courriers } = useQuery<Courrier>('SELECT * FROM courrier WHERE copropriete_id = ? ORDER BY updated DESC', [id]);
+}
+
+function RedactionIA({ coproId, sourceInitiale }: { coproId: string; sourceInitiale: string }) {
+	const { data: demandes } = useQuery<{ id: string; titre: string }>(
+		"SELECT id, titre FROM demande WHERE copropriete_id = ? ORDER BY statut IN ('resolue', 'close'), created DESC",
+		[coproId]
+	);
 	const enAttente = useEnAttente();
 	const statut = useStatus();
-
-	// Nouvelle demande (fonctionne hors ligne)
-	const [formDemande, setFormDemande] = useState(false);
-	const [d, setD] = useState({ titre: '', description: '', categorie: 'fuite', priorite: 'normale' });
-
-	async function creerDemande(e: FormEvent) {
-		e.preventDefault();
-		await creer('demande', { copropriete_id: id, ...d, statut: 'nouvelle' });
-		setD({ titre: '', description: '', categorie: 'fuite', priorite: 'normale' });
-		setFormDemande(false);
-	}
-
-	// Courrier rédigé par l'IA
-	const [ia, setIa] = useState({ type: 'reponse_coproprietaire' as TypeCourrier, source: '', destinataire: '', consignes: '' });
+	const [ouvert, setOuvert] = useState(Boolean(sourceInitiale));
+	const [ia, setIa] = useState({ type: 'reponse_coproprietaire' as TypeCourrier, source: sourceInitiale, destinataire: '', consignes: '' });
 	const [brouillon, setBrouillon] = useState<{ objet: string; corps: string } | null>(null);
-	const [iaEnCours, setIaEnCours] = useState(false);
-	const [iaErreur, setIaErreur] = useState('');
+	const [enCours, setEnCours] = useState(false);
+	const [erreur, setErreur] = useState('');
+	const [enregistre, setEnregistre] = useState(false);
 	const enLigne = navigator.onLine && statut.connected;
 
-	async function lancerRedaction(e: FormEvent) {
+	async function lancer(e: FormEvent) {
 		e.preventDefault();
-		setIaEnCours(true);
-		setIaErreur('');
+		setEnCours(true);
+		setErreur('');
+		setEnregistre(false);
 		try {
 			const b = await rediger({
 				type: ia.type,
-				copropriete_id: id,
+				copropriete_id: coproId,
 				source_type: ia.source ? 'demande' : undefined,
 				source_id: ia.source || undefined,
 				destinataire: ia.destinataire || undefined,
@@ -74,16 +179,16 @@ export function Copro() {
 			});
 			setBrouillon({ objet: b.objet, corps: b.corps });
 		} catch (err) {
-			setIaErreur((err as Error).message);
+			setErreur((err as Error).message);
 		} finally {
-			setIaEnCours(false);
+			setEnCours(false);
 		}
 	}
 
-	async function enregistrerBrouillon() {
+	async function enregistrer() {
 		if (!brouillon) return;
 		await creer('courrier', {
-			copropriete_id: id,
+			copropriete_id: coproId,
 			type: ia.type,
 			destinataire: ia.destinataire || '—',
 			objet: brouillon.objet,
@@ -93,150 +198,90 @@ export function Copro() {
 			source_id: ia.source || null
 		});
 		setBrouillon(null);
+		setEnregistre(true);
 		setIa({ ...ia, consignes: '' });
 	}
 
-	const c = copros[0];
-	if (!c) return isLoading ? null : <p className="vide">Copropriété introuvable. <Link to="/">Retour</Link></p>;
+	if (!ouvert) {
+		return (
+			<div className="appel-ia">
+				<p>Un courrier à écrire ? L'IA prépare un brouillon à partir de la fiche et de la demande choisie.</p>
+				<button className="principal" onClick={() => setOuvert(true)}>
+					Rédiger avec l’IA
+				</button>
+			</div>
+		);
+	}
 
 	return (
-		<>
-			<Link className="retour" to="/">
-				← Copropriétés
-			</Link>
-			<h1>{c.nom}</h1>
-			<p className="secondaire">{[c.adresse, c.code_postal, c.ville].filter(Boolean).join(' ')}</p>
-
-			<section>
-				<div className="entete">
-					<h2>Demandes</h2>
-					<button onClick={() => setFormDemande(!formDemande)}>{formDemande ? 'Annuler' : '+ Demande'}</button>
-				</div>
-
-				{formDemande && (
-					<form className="carte formulaire" onSubmit={creerDemande}>
-						<label>
-							Titre
-							<input value={d.titre} onChange={(e) => setD({ ...d, titre: e.target.value })} required placeholder="Fuite plafond salle de bain, 3e étage" />
-						</label>
-						<div className="ligne">
-							<label>
-								Catégorie
-								<select value={d.categorie} onChange={(e) => setD({ ...d, categorie: e.target.value })}>
-									{options(CATEGORIES_DEMANDE)}
-								</select>
-							</label>
-							<label>
-								Priorité
-								<select value={d.priorite} onChange={(e) => setD({ ...d, priorite: e.target.value })}>
-									{options(PRIORITES)}
-								</select>
-							</label>
-						</div>
-						<label>
-							Description
-							<textarea value={d.description} onChange={(e) => setD({ ...d, description: e.target.value })} rows={4} />
-						</label>
-						<button type="submit">Enregistrer</button>
-					</form>
-				)}
-
-				{demandes.length === 0 ? (
-					<p className="vide">Aucune demande.</p>
-				) : (
-					<ul className="liste">
-						{demandes.map((x) => (
-							<li key={x.id} className="demande">
-								<div>
-									<strong>{x.titre}</strong>
-									<span className="secondaire">
-										{CATEGORIES_DEMANDE[x.categorie] ?? ''} · {dateCourte(x.created)}
-									</span>
-									<BadgeLocal id={x.id} enAttente={enAttente} />
-								</div>
-								<span className={`priorite p-${x.priorite}`}>{PRIORITES[x.priorite] ?? ''}</span>
-								<select value={x.statut} onChange={(e) => modifier('demande', x.id, { statut: e.target.value })} aria-label="Statut">
-									{options(STATUTS_DEMANDE)}
-								</select>
-							</li>
-						))}
-					</ul>
-				)}
-			</section>
-
-			<section>
-				<h2>Rédiger un courrier</h2>
-				<form className="carte formulaire" onSubmit={lancerRedaction}>
-					<div className="ligne">
-						<label>
-							Type
-							<select value={ia.type} onChange={(e) => setIa({ ...ia, type: e.target.value as TypeCourrier })}>
-								{options(TYPES_COURRIER)}
-							</select>
-						</label>
-						<label>
-							À propos de
-							<select value={ia.source} onChange={(e) => setIa({ ...ia, source: e.target.value })}>
-								<option value="">— Aucune demande —</option>
-								{demandes.map((x) => (
-									<option key={x.id} value={x.id}>
-										{x.titre}
-									</option>
-								))}
-							</select>
-						</label>
-					</div>
+		<section className="redaction-ia">
+			<form onSubmit={lancer} className="fiche">
+				<div className="champs">
 					<label>
-						Destinataire
+						<span>Type de courrier</span>
+						<select value={ia.type} onChange={(e) => setIa({ ...ia, type: e.target.value as TypeCourrier })}>
+							{Object.entries(TYPES_COURRIER).map(([v, l]) => (
+								<option key={v} value={v}>
+									{l}
+								</option>
+							))}
+						</select>
+					</label>
+					<label>
+						<span>À propos de</span>
+						<select value={ia.source} onChange={(e) => setIa({ ...ia, source: e.target.value })}>
+							<option value="">— Aucune demande —</option>
+							{demandes.map((d) => (
+								<option key={d.id} value={d.id}>
+									{d.titre}
+								</option>
+							))}
+						</select>
+					</label>
+					<label>
+						<span>Destinataire</span>
 						<input value={ia.destinataire} onChange={(e) => setIa({ ...ia, destinataire: e.target.value })} placeholder="Mme Marie Dupont" />
 					</label>
-					<label>
-						Consignes
-						<textarea value={ia.consignes} onChange={(e) => setIa({ ...ia, consignes: e.target.value })} rows={2} placeholder="Rappeler le passage du plombier prévu jeudi" />
+					<label className="large">
+						<span>Consignes</span>
+						<textarea rows={2} value={ia.consignes} onChange={(e) => setIa({ ...ia, consignes: e.target.value })} placeholder="Rappeler le passage du plombier prévu jeudi" />
 					</label>
-					{ia.source && enAttente.has(ia.source) && <p className="aide">Cette demande n'est pas encore synchronisée : l'IA ne la verra qu'après envoi.</p>}
-					{iaErreur && <p className="erreur">{iaErreur}</p>}
-					<button type="submit" disabled={iaEnCours || !enLigne}>
-						{iaEnCours ? 'Rédaction…' : enLigne ? 'Rédiger avec l’IA' : 'Rédaction IA indisponible hors ligne'}
+				</div>
+				{ia.source && enAttente.has(ia.source) && <p className="aide">Cette demande n'est pas encore synchronisée : l'IA ne la verra qu'après envoi.</p>}
+				{erreur && <p className="erreur">{erreur}</p>}
+				{enregistre && <p className="aide">Brouillon enregistré dans la liste des courriers ci-dessous.</p>}
+				<div className="pied-fiche">
+					<button type="submit" className="principal" disabled={enCours || !enLigne}>
+						{enCours ? 'Rédaction…' : enLigne ? 'Rédiger avec l’IA' : 'Rédaction IA indisponible hors ligne'}
 					</button>
-				</form>
+					<button type="button" className="secondaire-btn" onClick={() => (setOuvert(false), setBrouillon(null))}>
+						Fermer
+					</button>
+				</div>
+			</form>
 
-				{brouillon && (
-					<div className="carte formulaire brouillon">
-						<label>
-							Objet
+			{brouillon && (
+				<div className="fiche brouillon">
+					<div className="champs">
+						<label className="large">
+							<span>Objet</span>
 							<input value={brouillon.objet} onChange={(e) => setBrouillon({ ...brouillon, objet: e.target.value })} />
 						</label>
-						<label>
-							Corps
-							<textarea value={brouillon.corps} onChange={(e) => setBrouillon({ ...brouillon, corps: e.target.value })} rows={16} />
+						<label className="large">
+							<span>Texte</span>
+							<textarea rows={16} value={brouillon.corps} onChange={(e) => setBrouillon({ ...brouillon, corps: e.target.value })} />
 						</label>
-						<div className="ligne">
-							<button onClick={enregistrerBrouillon}>Enregistrer le brouillon</button>
-							<button className="secondaire-btn" onClick={() => setBrouillon(null)}>
-								Abandonner
-							</button>
-						</div>
 					</div>
-				)}
-
-				{courriers.length > 0 && (
-					<>
-						<h3>Courriers</h3>
-						<ul className="liste">
-							{courriers.map((co) => (
-								<li key={co.id}>
-									<strong>{co.objet || TYPES_COURRIER[co.type]}</strong>
-									<span className="secondaire">
-										{co.destinataire} · {co.statut} · {dateCourte(co.updated)}
-									</span>
-									<BadgeLocal id={co.id} enAttente={enAttente} />
-								</li>
-							))}
-						</ul>
-					</>
-				)}
-			</section>
-		</>
+					<div className="pied-fiche">
+						<button className="principal" onClick={enregistrer}>
+							Enregistrer le brouillon
+						</button>
+						<button className="secondaire-btn" onClick={() => setBrouillon(null)}>
+							Abandonner
+						</button>
+					</div>
+				</div>
+			)}
+		</section>
 	);
 }

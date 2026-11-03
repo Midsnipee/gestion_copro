@@ -14,7 +14,7 @@ Référence fonctionnelle et technique : [docs/specifications.md](docs/specifica
 | --- | --- | --- |
 | Base de données | Schéma PostgreSQL complet (18 tables), publication pour PowerSync | — |
 | API | Sessions JWT + renouvellement, rôles, administration, envoi des écritures avec contrôle de version et consignation des conflits, rédaction IA | Fichiers (scans, photos), export Word/PDF |
-| Front PWA | Premier lancement, connexion, copros, demandes, rédaction de courrier IA, statut « Sur cet appareil » / « Synchronisé », Conflits, Administration, Mon compte | Lots, contacts, entreprises, visites |
+| Front PWA | Menu latéral par fonction, tableau de bord « À traiter », recherche globale (Ctrl K), écrans pour tous les modules (demandes, tâches, travaux, devis, courriers, visites, réunions, résolutions, copros, lots, personnes, entreprises, contrats, documents), fiche copro à onglets, rédaction IA, Conflits, Administration, Mon compte — tout fonctionne hors ligne sauf l'IA et l'administration | Envoi de fichiers (scans, photos), export Word/PDF |
 | Worker IA | Rédaction avec pseudonymisation | Ingestion des scans, chatbot RAG, transcription |
 | Déploiement | docker-compose (5 services), sauvegarde vers le NAS | — |
 

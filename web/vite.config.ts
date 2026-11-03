@@ -10,7 +10,7 @@ export default defineConfig({
 			workbox: {
 				// Les binaires SQLite (WASM) dépassent la limite par défaut ; ils doivent être en cache pour le hors ligne
 				maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
-				globPatterns: ['**/*.{js,css,html,wasm,svg,png,webmanifest}'],
+				globPatterns: ['**/*.{js,css,html,wasm,svg,png,webmanifest,woff2}'],
 				navigateFallback: '/index.html',
 				navigateFallbackDenylist: [/^\/api\//, /^\/powersync\//]
 			},
