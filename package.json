@@ -1,0 +1,9 @@
+{
+  "name": "gestion-copro",
+  "private": true,
+  "workspaces": ["shared", "api", "web"],
+  "scripts": {
+    "test": "npm run test -w api",
+    "build": "npm run build -w api && npm run build -w web"
+  }
+}

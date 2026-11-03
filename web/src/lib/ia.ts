@@ -1,4 +1,4 @@
-import { pb } from './pb';
+import { api } from './session';
 
 export type TypeCourrier =
 	| 'relance'
@@ -14,23 +14,14 @@ export interface Brouillon {
 	modele: string;
 }
 
-export async function rediger(params: {
+export function rediger(params: {
 	type: TypeCourrier;
 	copropriete_id: string;
-	source_type?: 'demande' | 'visite' | 'reunion' | 'chantier';
+	source_type?: 'demande';
 	source_id?: string;
 	destinataire?: string;
 	consignes?: string;
 }): Promise<Brouillon> {
-	if (!navigator.onLine) throw new Error('La rédaction IA nécessite une connexion.');
-	const r = await fetch('/ia/redaction', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', Authorization: pb.authStore.token },
-		body: JSON.stringify(params)
-	});
-	if (!r.ok) {
-		const detail = await r.json().catch(() => ({}));
-		throw new Error(detail.detail ?? `Erreur ${r.status}`);
-	}
-	return r.json();
+	if (!navigator.onLine) return Promise.reject(new Error('La rédaction IA nécessite une connexion.'));
+	return api<Brouillon>('/api/ia/redaction', params);
 }

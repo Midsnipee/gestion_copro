@@ -6,9 +6,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # PocketBase interne (réseau docker)
-    pb_url: str = "http://app:8090"
-
     # OpenRouter
     openrouter_api_key: str = ""
     openrouter_url: str = "https://openrouter.ai/api/v1/chat/completions"

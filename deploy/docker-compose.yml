@@ -2,41 +2,75 @@
 name: gestion-copro
 
 services:
-  app:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    command: postgres -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10
+    environment:
+      POSTGRES_USER: copro
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?définir PG_PASSWORD dans .env}
+      POSTGRES_DB: copro
+      PS_PASSWORD: ${PS_PASSWORD:?définir PS_PASSWORD dans .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sh:/docker-entrypoint-initdb.d/10-powersync.sh:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "copro", "-d", "copro"]
+      interval: 5s
+      retries: 20
+
+  api:
     build:
       context: ..
-      dockerfile: app/Dockerfile
+      dockerfile: api/Dockerfile
     restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://copro:${PG_PASSWORD}@postgres:5432/copro
+      CLES_DIR: /data/cles
+      AI_WORKER_URL: http://ai-worker:8000
+      POWERSYNC_URL: /powersync
     volumes:
-      - pb_data:/pb/pb_data
-    expose:
-      - "8090"
+      - api_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/sante').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      retries: 20
+
+  powersync:
+    build: ./powersync
+    restart: unless-stopped
+    environment:
+      PS_SOURCE_URI: postgres://powersync:${PS_PASSWORD}@postgres:5432/copro
+      PS_STORAGE_URI: postgres://powersync:${PS_PASSWORD}@postgres:5432/powersync_storage
+      PS_JWKS_URI: http://api:3000/api/.well-known/jwks.json
+    depends_on:
+      api:
+        condition: service_healthy
 
   ai-worker:
     build: ../ai-worker
     restart: unless-stopped
     env_file: .env
-    environment:
-      PB_URL: http://app:8090
-    depends_on:
-      - app
-    expose:
-      - "8000"
 
-  proxy:
-    image: caddy:2-alpine
+  web:
+    build:
+      context: ..
+      dockerfile: web/Dockerfile
     restart: unless-stopped
     env_file: .env
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
     depends_on:
-      - app
-      - ai-worker
+      - api
+      - powersync
 
 volumes:
-  pb_data:
+  pgdata:
+  api_data:
   caddy_data:

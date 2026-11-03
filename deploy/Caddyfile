@@ -1,18 +1,25 @@
 # DOMAINE=copro.mondomaine.fr  -> certificat Let's Encrypt automatique
-# DOMAINE=:80                 -> HTTP simple sur le réseau local / derrière VPN
+# DOMAINE=:80                 -> HTTP simple, uniquement pour un test sur le poste (localhost)
 {$DOMAINE::80} {
 	encode zstd gzip
 
-	# Worker IA (le préfixe /ia est retiré avant transmission)
-	handle_path /ia/* {
-		reverse_proxy ai-worker:8000
+	handle /api/* {
+		reverse_proxy api:3000
 	}
 
-	# PocketBase : API + front PWA
+	# Flux de synchronisation PowerSync (le préfixe est retiré)
+	handle_path /powersync/* {
+		reverse_proxy powersync:8080 {
+			flush_interval -1
+		}
+	}
+
+	# Application (PWA)
 	handle {
-		reverse_proxy app:8090
+		root * /srv
+		try_files {path} /index.html
+		file_server
+		header /sw.js Cache-Control "no-cache"
+		header /index.html Cache-Control "no-cache"
 	}
-
-	# Le service worker ne doit jamais être mis en cache par le navigateur
-	header /sw.js Cache-Control "no-cache"
 }

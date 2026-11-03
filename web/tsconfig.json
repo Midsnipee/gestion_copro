@@ -1,7 +1,15 @@
 {
-	"extends": "$app/tsconfig",
-	"compilerOptions": {
-		"strict": true
-	},
-	"include": ["src", "vite.config.ts"]
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["vite/client", "vite-plugin-pwa/client"]
+  },
+  "include": ["src", "../shared/src", "vite.config.ts"]
 }

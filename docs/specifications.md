@@ -81,27 +81,34 @@ Les modèles sont paramétrables dans l'admin, sans changer le code.
 
 ## Architecture technique et stack
 
-Une seule base de code, un serveur PocketBase au centre, un worker Python pour l'IA, et un front PWA qui fonctionne hors ligne.
+Chaque appareil travaille sur sa propre base SQLite, synchronisée par PowerSync avec PostgreSQL sur le serveur ; une API TypeScript valide toutes les écritures, et un worker Python, interne, porte l'IA.
 
 ```mermaid
 flowchart LR
-    PC["PC (navigateur)"] --> Caddy
-    Mobile["Tablette, mobile<br/>PWA hors ligne<br/>IndexedDB + outbox"] --> Caddy
-    subgraph VM["Serveur : VM Proxmox, Docker"]
-        Caddy["Caddy, reverse proxy HTTPS"] --> PB["PocketBase<br/>API, auth, front PWA<br/>SQLite : données métier<br/>Fichiers : scans, photos"]
-        PB <--> Worker["Worker IA (FastAPI)<br/>OCR, embeddings bge-m3, Whisper<br/>Index SQLite : sqlite-vec + FTS5<br/>Pseudonymisation avant envoi<br/>File de tâches"]
+    PC["PC (navigateur)<br/>PWA + SQLite local"] --> Caddy
+    Mobile["Tablette, mobile<br/>PWA + SQLite local<br/>file d'envoi PowerSync"] --> Caddy
+    subgraph VM["Serveur : VM Proxmox, Docker Compose"]
+        Caddy["Caddy<br/>HTTPS, fichiers de la PWA"] -->|/api| API["API Fastify (TypeScript)<br/>sessions, contrôle des écritures,<br/>conflits, rédaction IA"]
+        Caddy -->|/powersync| PS["Service PowerSync<br/>flux de synchronisation"]
+        API --> PG[("PostgreSQL<br/>base centrale")]
+        PG -->|réplication logique| PS
+        API --> Worker["Worker IA (FastAPI)<br/>pseudonymisation, OCR,<br/>embeddings, index sqlite-vec"]
     end
-    PB --> NAS["NAS<br/>Sauvegarde nocturne"]
-    Worker <--> OR["OpenRouter<br/>LLM cloud<br/>texte pseudonymisé"]
+    PG --> NAS["NAS<br/>pg_dump nocturne"]
+    Worker <--> OR["OpenRouter<br/>texte pseudonymisé"]
 ```
 
-Les appareils ne parlent qu'au serveur ; seul le worker appelle OpenRouter, après pseudonymisation.
+Lecture : les écritures montent par l'API, les données redescendent par PowerSync. Le worker IA n'est joignable que par l'API, et seul lui appelle OpenRouter.
 
 | Couche | Choix | Raison |
 | --- | --- | --- |
-| Front | SvelteKit 3 en PWA, service worker maison | Installable, hors ligne, léger |
-| Stockage local | IndexedDB (Dexie) + outbox | Saisie et photos sans réseau |
-| Backend | PocketBase (Go, SQLite) | Binaire unique : API, auth, fichiers, admin |
+| Interface | React + Vite, PWA (vite-plugin-pwa, Workbox) | Rouvre hors connexion après une première visite |
+| Données sur l'appareil | PowerSync Web + SQLite (wa-sqlite) | Lecture et écriture locales ; file d'envoi jusqu'au retour du réseau |
+| API | Fastify + TypeScript | Reçoit les écritures, vérifie les droits, applique les règles et le contrôle de version |
+| Base centrale | PostgreSQL 17 (réplication logique) | Données partagées ; PowerSync répercute les changements vers les appareils |
+| Synchronisation | Service PowerSync auto-hébergé (Sync Streams) | Diffusion incrémentale vers chaque appareil |
+| Sessions | JWT RS256 (1 h) + jeton de renouvellement (60 j, usage unique) | Même jeton pour l'API et PowerSync (clé publique en JWKS) |
+| Schéma partagé | `shared/src/tables.ts` | Une seule définition pour l'API et le schéma local des appareils |
 | Recherche | sqlite-vec + FTS5 | Index propre au worker IA, reconstructible depuis les documents |
 | Worker IA | Python, FastAPI | Écosystème OCR et IA |
 | OCR | Tesseract ou PaddleOCR | Local, gratuit |
@@ -109,6 +116,7 @@ Les appareils ne parlent qu'au serveur ; seul le worker appelle OpenRouter, apr�
 | Transcription | Whisper small ou medium | Local, sur CPU |
 | LLM | OpenRouter | Un modèle par tâche, interchangeable |
 | Documents | docxtemplater + PDF | Modèles Word d'Aline |
+| Hébergement | Docker Compose + Caddy (HTTPS) | Le service worker exige un contexte sécurisé (sauf `localhost`) |
 
 ## Modèle de données
 
@@ -134,9 +142,11 @@ La copropriété est la racine : toute donnée y est rattachée, directement ou 
 | tache | titre, échéance, statut, origine (manuelle, IA) | tout objet |
 | journal | action, objet, horodatage, auteur | tout objet |
 
-Chaque enregistrement porte un identifiant PocketBase (15 caractères) généré côté client, ce qui permet de créer une fiche hors ligne sans conflit, et une date `updated` indexée pour la synchronisation incrémentale.
+Chaque fiche porte un identifiant UUID généré par l'appareil : une fiche créée hors ligne garde son identifiant, et un renvoi après coupure ne crée pas de doublon. Elle porte aussi une `version`, incrémentée par l'API à chaque modification, qui sert à détecter les modifications concurrentes.
 
-Les passages découpés des documents et leurs embeddings ne sont pas dans PocketBase : ils vivent dans l'index SQLite du worker IA (sqlite-vec + FTS5), reconstructible à partir des documents.
+La table `conflit` consigne les écritures que le serveur n'a pas appliquées ; elle est synchronisée vers les appareils pour que l'utilisatrice tranche. Les comptes (`utilisateur`, jetons de renouvellement) ne sont jamais synchronisés.
+
+Les passages découpés des documents et leurs embeddings ne sont pas dans PostgreSQL : ils vivent dans l'index SQLite du worker IA (sqlite-vec + FTS5), reconstructible à partir des documents.
 
 ## Pipeline d'ingestion documentaire
 
@@ -168,10 +178,17 @@ L'application reste utilisable sans réseau pour la consultation et la saisie ; 
 
 Principe technique :
 
-- Le front (PWA) garde une copie locale dans IndexedDB via Dexie, par défaut les données de toutes les copros sans les fichiers.
-- Chaque modification locale entre dans une file de synchronisation (outbox), rejouée vers PocketBase dès le retour du réseau.
-- Conflits : une seule utilisatrice, donc « la dernière modification gagne », avec historique dans le journal pour revenir en arrière.
+- Chaque appareil garde une base SQLite locale (PowerSync), avec par défaut les données de toutes les copros, sans les fichiers.
+- Chaque écriture est appliquée localement tout de suite, puis placée dans la file d'envoi de PowerSync. Au retour du réseau, le connecteur envoie la file par lots à l'API (`POST /api/sync/upload`). La reprise se déclenche à la réouverture de l'application et au retour du réseau tant qu'elle est ouverte ; une synchronisation application fermée dépend des capacités du navigateur.
+- L'interface distingue « Sur cet appareil » (écriture pas encore reçue par le serveur) de « Synchronisé ».
 - Avant une visite, Aline peut « préparer la copro » : les documents clés de cette copro sont mis en cache sur l'appareil.
+
+**Modifications concurrentes (plusieurs appareils)**
+
+1. Chaque modification transmet la version de la fiche sur laquelle l'appareil a travaillé.
+2. Si la fiche a changé entre-temps sur le serveur, l'API n'écrase pas : elle consigne un conflit (valeurs de l'appareil et valeurs actuelles), et l'appareil reçoit la version du serveur.
+3. Une écriture invalide (fiche parente supprimée, valeur refusée) est consignée de la même façon, en « rejet », sans bloquer les écritures suivantes.
+4. Dans l'écran « Conflits », l'utilisatrice choisit : appliquer sa modification (renvoyée sur la version actuelle) ou garder la version actuelle.
 
 ## Sécurité, RGPD, sauvegardes
 
@@ -185,10 +202,12 @@ Les données des copropriétaires restent sur le serveur ; seuls des textes pseu
 
 **Accès**
 
-- Authentification PocketBase, mot de passe fort, accès distant uniquement via HTTPS (reverse proxy) ou VPN.
+- Comptes gérés par l'API (mots de passe hachés scrypt), créés en ligne de commande ; accès distant uniquement via HTTPS ou VPN.
+- Jeton d'accès RS256 d'une heure, renouvelé avec un jeton à usage unique de 60 jours ; la désactivation d'un compte révoque ses renouvellements.
 - Clé API OpenRouter stockée côté serveur, jamais dans le front.
-- Le worker IA n'a pas de compte propre : chaque appel porte la session PocketBase de l'utilisatrice, vérifiée auprès de PocketBase, et il ne lit que ce qu'elle a le droit de lire.
-- Données locales de l'appareil effaçables à distance par déconnexion du compte.
+- Le worker IA n'est pas exposé : seule l'API l'appelle, après avoir vérifié la session et assemblé le contexte.
+- Toute écriture passe par l'API : liste blanche des tables et colonnes, types vérifiés, colonnes gérées par le serveur (version, dates) ignorées.
+- La déconnexion efface la base locale de l'appareil.
 
 **RGPD**
 
@@ -197,13 +216,13 @@ Les données des copropriétaires restent sur le serveur ; seuls des textes pseu
 
 **Sauvegardes**
 
-- Base SQLite et fichiers sauvegardés chaque nuit vers le NAS, avec rétention 30 jours.
+- Dump PostgreSQL (et clés de signature des sessions) chaque nuit vers le NAS, avec rétention 30 jours.
 - Copie hors site chiffrée (règle 3-2-1).
 - Test de restauration trimestriel.
 
 ## Infrastructure et déploiement
 
-Cible recommandée : une VM sur le Proxmox, avec trois conteneurs Docker et des sauvegardes vers le NAS ; aucun GPU nécessaire puisque le LLM est dans le cloud.
+Cible recommandée : une VM sur le Proxmox, avec cinq conteneurs Docker et des sauvegardes vers le NAS ; aucun GPU nécessaire puisque le LLM est dans le cloud.
 
 | Ressource | Minimum | Recommandé |
 | --- | --- | --- |
@@ -214,11 +233,13 @@ Cible recommandée : une VM sur le Proxmox, avec trois conteneurs Docker et des 
 
 Conteneurs (docker-compose) :
 
-- `app` : PocketBase, qui sert aussi le front PWA compilé.
-- `ai-worker` : FastAPI + file de tâches ; OCR, embeddings, Whisper, appels OpenRouter.
-- `proxy` : Caddy pour le HTTPS automatique.
+- `postgres` : PostgreSQL 17 avec réplication logique ; rôle `powersync` dédié en lecture et réplication.
+- `api` : Fastify ; applique les migrations SQL au démarrage.
+- `powersync` : service de synchronisation, stockage interne dans une base séparée du même Postgres.
+- `ai-worker` : FastAPI ; OCR, embeddings, Whisper, appels OpenRouter. Réseau interne uniquement.
+- `web` : Caddy, qui sert la PWA, relaie `/api` et `/powersync`, et gère le HTTPS automatique.
 
-Mode PC : le même ensemble lancé via Docker Desktop sur le poste d'Aline, ou PocketBase seul avec un worker allégé. Le mode serveur reste recommandé pour 100 copros (volume de documents, sauvegardes, accès depuis la tablette).
+Mode PC : le même ensemble lancé via Docker Desktop sur le poste d'Aline. Le mode serveur reste recommandé pour 100 copros (volume de documents, sauvegardes, accès depuis la tablette).
 
 Mises à jour : images versionnées, migration de schéma automatique au démarrage, sauvegarde forcée avant chaque mise à jour.
 
@@ -246,3 +267,4 @@ La V1 se teste sur 5 copros pilotes avant d'élargir ; l'ingestion massive des a
 - [ ] Envoi des courriers : export PDF à envoyer à la main, ou envoi e-mail depuis l'application ?
 - [ ] Budget mensuel acceptable pour les appels OpenRouter
 - [ ] Accès distant : VPN ou exposition HTTPS publique ?
+- [ ] Combien d'appareils et de personnes : Aline seule sur PC + tablette, ou d'autres gestionnaires (droits par copropriété) ?

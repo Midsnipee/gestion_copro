@@ -3,13 +3,10 @@
 import re
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from .openrouter import OpenRouter
-from .pocketbase import PocketBase
 from .pseudonymisation import Pseudonymiseur
-
-PB_ID = r"^[a-z0-9]{15}$"
 
 TypeDocument = Literal[
     "relance",
@@ -47,10 +44,13 @@ Objet : <objet>
 
 
 class DemandeRedaction(BaseModel):
+    """Contexte assemblé par l'API (droits déjà vérifiés)."""
+
     type: TypeDocument
-    copropriete_id: str = Field(pattern=PB_ID)
+    copropriete: dict
     source_type: Literal["demande", "visite", "reunion", "chantier"] | None = None
-    source_id: str | None = Field(default=None, pattern=PB_ID)
+    source: dict | None = None
+    personnes: list[dict] = []
     destinataire: str | None = None
     consignes: str = ""
 
@@ -83,19 +83,16 @@ def _declarer_personne(p: Pseudonymiseur, personne: dict | None) -> None:
     p.ajouter(personne.get("telephone"), "TELEPHONE")
 
 
-async def assembler_contexte(pb: PocketBase, d: DemandeRedaction, p: Pseudonymiseur) -> str:
-    copro = await pb.record("copropriete", d.copropriete_id)
-    lignes = [
-        f"Copropriété : {copro.get('nom')}",
-        f"Adresse de l'immeuble : {copro.get('adresse')} {copro.get('code_postal', '')} {copro.get('ville', '')}".strip(),
-    ]
+def assembler_contexte(d: DemandeRedaction, p: Pseudonymiseur) -> str:
+    c = d.copropriete
+    adresse = " ".join(str(x) for x in (c.get("adresse"), c.get("code_postal"), c.get("ville")) if x)
+    lignes = [f"Copropriété : {c.get('nom')}", f"Adresse de l'immeuble : {adresse}"]
 
-    if d.source_type and d.source_id:
-        expand = "demandeur" if d.source_type == "demande" else None
-        src = await pb.record(d.source_type, d.source_id, expand=expand)
-        if src.get("copropriete") != d.copropriete_id:
-            raise ValueError("La source n'appartient pas à cette copropriété")
-        _declarer_personne(p, (src.get("expand") or {}).get("demandeur"))
+    for personne in d.personnes:
+        _declarer_personne(p, personne)
+
+    if d.source_type and d.source:
+        src = d.source
         lignes.append(f"\nÉlément source ({d.source_type}) :")
         for champ in ("titre", "objet", "categorie", "statut", "priorite", "date", "type", "lieu", "echeance"):
             if src.get(champ):
@@ -118,9 +115,9 @@ def _decouper(texte: str) -> tuple[str, str]:
     return m.group(1).strip(), m.group(2).strip()
 
 
-async def rediger(pb: PocketBase, llm: OpenRouter, modele: str, d: DemandeRedaction) -> Brouillon:
+async def rediger(llm: OpenRouter, modele: str, d: DemandeRedaction) -> Brouillon:
     p = Pseudonymiseur()
-    contexte = await assembler_contexte(pb, d, p)
+    contexte = assembler_contexte(d, p)
     consignes = CONSIGNES_TYPE[d.type]
     if d.consignes:
         consignes += f"\nConsignes de la gestionnaire : {d.consignes}"

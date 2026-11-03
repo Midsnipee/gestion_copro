@@ -339,3 +339,63 @@ label {
 		flex-wrap: wrap;
 	}
 }
+
+/* --- ajouts React / PowerSync --- */
+#root {
+	min-height: 100vh;
+}
+
+span.sync {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--secondaire);
+	border: 1px solid var(--bord);
+	border-radius: 8px;
+	font-size: 0.85rem;
+	padding: 4px 10px;
+	white-space: nowrap;
+}
+
+header nav a.active {
+	color: var(--texte);
+	background: var(--accent-clair);
+}
+
+.badges {
+	display: flex;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+
+.badge.local {
+	background: transparent;
+	border: 1px dashed var(--alerte);
+	color: var(--alerte);
+}
+
+.badge.alerte {
+	margin: 0 0 0 6px;
+	background: var(--danger);
+	color: #fff;
+}
+
+.conflit table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.9rem;
+	margin: 8px 0 12px;
+}
+
+.conflit th,
+.conflit td {
+	text-align: left;
+	padding: 6px 8px;
+	border-bottom: 1px solid var(--bord);
+	vertical-align: top;
+}
+
+.conflit th {
+	color: var(--secondaire);
+	font-weight: 500;
+}

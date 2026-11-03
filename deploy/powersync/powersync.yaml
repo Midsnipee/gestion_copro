@@ -1,0 +1,23 @@
+# Service PowerSync auto-hébergé. Les secrets viennent de l'environnement (!env).
+replication:
+  connections:
+    - type: postgresql
+      uri: !env PS_SOURCE_URI
+      sslmode: disable
+
+# Stockage interne de PowerSync (base séparée sur le même Postgres)
+storage:
+  type: postgresql
+  uri: !env PS_STORAGE_URI
+  sslmode: disable
+
+port: 8080
+
+sync_config:
+  path: sync-config.yaml
+
+# Jetons émis par l'API (clé publique exposée en JWKS)
+client_auth:
+  jwks_uri: !env PS_JWKS_URI
+  block_local_jwks: false
+  audience: ['powersync']

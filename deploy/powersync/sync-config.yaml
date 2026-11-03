@@ -1,0 +1,28 @@
+# Données synchronisées vers les appareils (PowerSync Sync Streams).
+# Un seul cabinet : tout utilisateur authentifié reçoit l'ensemble des données.
+# À faire évoluer si plusieurs gestionnaires ne doivent voir que leurs copropriétés.
+config:
+  edition: 3
+
+streams:
+  cabinet:
+    auto_subscribe: true
+    queries:
+      - SELECT * FROM copropriete
+      - SELECT * FROM lot
+      - SELECT * FROM personne
+      - SELECT * FROM entreprise
+      - SELECT * FROM contrat
+      - SELECT * FROM demande
+      - SELECT * FROM reunion
+      - SELECT * FROM resolution
+      - SELECT * FROM chantier
+      - SELECT * FROM devis
+      - SELECT * FROM courrier
+      - SELECT * FROM visite
+      - SELECT * FROM photo
+      - SELECT * FROM document
+      - SELECT * FROM extraction
+      - SELECT * FROM tache
+      - SELECT * FROM journal
+      - SELECT * FROM conflit

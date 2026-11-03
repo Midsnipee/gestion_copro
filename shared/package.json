@@ -1,0 +1,9 @@
+{
+  "name": "@copro/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tables": "./src/tables.ts"
+  }
+}

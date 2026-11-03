@@ -2,8 +2,9 @@
 
 Application de gestion de syndic de copropriété (~100 copros) : demandes, travaux, devis, courriers, visites, réunions et AG, avec IA de rédaction, analyse des documents scannés et chatbot.
 
-- Local-first : fonctionne sur PC ou serveur auto-hébergé, utilisable hors ligne (PWA).
-- Stack : PocketBase (SQLite) · SvelteKit PWA + Dexie · worker IA Python (FastAPI) · LLM via OpenRouter · Caddy.
+- Hors ligne d'abord : chaque appareil (PC, tablette, téléphone) lit et écrit dans sa propre base SQLite ; PowerSync synchronise avec PostgreSQL au retour du réseau.
+- Plusieurs appareils peuvent modifier les mêmes fiches : les modifications concurrentes sont détectées et soumises à l'utilisatrice, jamais écrasées en silence.
+- Stack : React + Vite (PWA) · PowerSync Web + SQLite · API Fastify + TypeScript · PostgreSQL · worker IA Python (OpenRouter) · Docker Compose + Caddy.
 
 Référence fonctionnelle et technique : [docs/specifications.md](docs/specifications.md).
 
@@ -11,51 +12,58 @@ Référence fonctionnelle et technique : [docs/specifications.md](docs/specifica
 
 | Partie | Fait | À venir |
 | --- | --- | --- |
-| Base de données | Schéma complet des 17 collections (`app/pb_migrations`) | — |
-| Front PWA | Connexion, liste et recherche des copros, fiche copro, demandes, rédaction de courrier IA, synchro hors ligne, cache de l'appli | Lots, contacts, entreprises, visites, export Word/PDF |
-| Worker IA | Rédaction de courriers avec pseudonymisation, authentification par la session PocketBase | Ingestion des scans, chatbot RAG, transcription |
-| Déploiement | docker-compose, Caddy, sauvegarde vers le NAS | — |
+| Base de données | Schéma PostgreSQL complet (18 tables), publication pour PowerSync | — |
+| API | Sessions JWT + renouvellement, envoi des écritures avec contrôle de version et consignation des conflits, rédaction IA | Fichiers (scans, photos), export Word/PDF |
+| Front PWA | Connexion, copros, demandes, rédaction de courrier IA, statut « Sur cet appareil » / « Synchronisé », écran Conflits | Lots, contacts, entreprises, visites |
+| Worker IA | Rédaction avec pseudonymisation | Ingestion des scans, chatbot RAG, transcription |
+| Déploiement | docker-compose (5 services), sauvegarde vers le NAS | — |
 
 ## Démarrage sur le serveur
 
 ```bash
 git clone https://github.com/Midsnipee/gestion_copro && cd gestion_copro/deploy
-cp .env.example .env          # renseigner OPENROUTER_API_KEY, DOMAINE
+cp .env.example .env     # renseigner DOMAINE, PG_PASSWORD, PS_PASSWORD, OPENROUTER_API_KEY
 docker compose up -d --build
 
-# Compte administrateur PocketBase (une fois)
-docker compose exec app /pb/pocketbase superuser upsert admin@exemple.fr 'MotDePasseFort'
+# Compte d'Aline (mot de passe demandé, 12 caractères min.)
+docker compose exec api node dist/cli.js utilisateur aline@exemple.fr "Aline"
 ```
 
-Puis, dans l'admin PocketBase (`http://<serveur>/_/`) :
+Aline ouvre ensuite `https://<DOMAINE>/` et installe l'application depuis le navigateur. L'installation et le hors ligne exigent HTTPS (sauf `localhost`) : renseigner `DOMAINE` avec un nom qui pointe vers le serveur (Caddy obtient le certificat), ou passer par un VPN avec certificat.
 
-1. Collection **users** : créer le compte d'Aline (e-mail + mot de passe).
-2. **Settings > Backups** : activer les sauvegardes automatiques (cron `0 2 * * *`, garder 7).
-3. Sur l'hôte, planifier la copie vers le NAS : `30 2 * * * /chemin/gestion_copro/deploy/sauvegarde.sh /mnt/nas/sauvegardes/copro`
+Sauvegarde nocturne vers le NAS, sur l'hôte :
 
-Aline ouvre ensuite `http://<serveur>/` et installe l'application depuis le navigateur (« Installer » / « Ajouter à l'écran d'accueil »). L'installation PWA et le hors ligne exigent HTTPS, sauf sur `localhost` : en dehors du poste local, renseigner `DOMAINE` ou passer par un VPN avec certificat.
+```
+30 2 * * * /chemin/gestion_copro/deploy/sauvegarde.sh /mnt/nas/sauvegardes/copro
+```
 
 ## Développement
 
+Prérequis : Node 22, Python 3.12, un PostgreSQL 17 avec `wal_level=logical`.
+
 ```bash
-# PocketBase (binaire depuis https://github.com/pocketbase/pocketbase/releases, v0.40+)
-cd app && pocketbase serve --migrationsDir=pb_migrations --hooksDir=pb_hooks
+npm install
+
+# API (applique les migrations au démarrage)
+DATABASE_URL=postgres://... npm run dev -w api
+npm test                                   # tests API contre un vrai Postgres (TEST_DATABASE_ADMIN_URL)
+
+# Service PowerSync : voir deploy/powersync (Node 24 ou image Docker)
 
 # Worker IA
-cd ai-worker && python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-PB_URL=http://127.0.0.1:8090 OPENROUTER_API_KEY=... .venv/bin/uvicorn app.main:app --port 8000
-.venv/bin/pytest
+cd ai-worker && python -m venv .venv && .venv/bin/pip install -e '.[dev]' && .venv/bin/pytest
 
-# Front (proxy /api -> :8090 et /ia -> :8000)
-cd web && npm install && npm run dev
+# Front (proxy /api -> :3000, /powersync -> :8080)
+npm run dev -w web
 ```
 
 ## Arborescence
 
 ```
 docs/        spécifications (référence)
-app/         PocketBase : migrations, hooks, Dockerfile (embarque le front compilé)
-web/         front SvelteKit PWA (Dexie + file d'envoi hors ligne)
-ai-worker/   FastAPI : rédaction, pseudonymisation, client OpenRouter
-deploy/      docker-compose, Caddyfile, .env.example, sauvegarde.sh
+shared/      définition des tables, partagée par l'API et le front
+api/         Fastify : migrations SQL, sessions, envoi des écritures, conflits, IA
+web/         PWA React + PowerSync
+ai-worker/   FastAPI : pseudonymisation, appels OpenRouter
+deploy/      docker-compose, Caddyfile, PowerSync, init Postgres, sauvegarde
 ```
